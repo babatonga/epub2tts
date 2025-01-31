@@ -215,8 +215,8 @@ class XTTS(Text2WaveFile):
         return package_installed
 
     def proccess_text(self, text, wave_file_name):
-        if self.language != "en":
-            text = text.replace(".", ",")
+        #if self.language != "en":
+            #text = text.replace(".", ",") # Why ???
         self.read_chunk_xtts(text, wave_file_name)
 
     def read_chunk_xtts(self, sentences, wav_file_path):
@@ -224,6 +224,7 @@ class XTTS(Text2WaveFile):
         t0 = time.time()
         wav_chunks = []
         sentence_list = sent_tokenize(sentences)
+
         for i, sentence in enumerate(sentence_list):
             # Run TTS for each sentence
             if self.debug:
@@ -374,7 +375,6 @@ def process_book_chapter(dat):
     
     print("done chapter: ", dat['chapter'])
     return dat['outputwav']
-
 
 
 class EpubToAudiobook:
@@ -552,6 +552,7 @@ class EpubToAudiobook:
         text = (
             text_in.replace("--", ", ")
             .replace("—", ", ")
+            .replace("–", "-")
             .replace(";", ", ")
             .replace(":", ", ")
             .replace("''", ", ")
@@ -560,17 +561,71 @@ class EpubToAudiobook:
             .replace('”', '"')
             .replace("◇", "")
             .replace(" . . . ", ", ")
-            .replace("... ", ", ")
-            .replace("«", " ")
-            .replace("»", " ")
+            .replace("...", " , ")
+            #.replace("«", " ")
+            #.replace("»", " ")
+            .replace("›", ", ")
+            .replace("‹", ", ")
             .replace("[", "")
             .replace("]", "")
-            .replace("&", " and ")
-            .replace(" GNU ", " new ")
+            .replace("&", " und ")
+            .replace('%', " prozent")
+            #.replace(" GNU ", " new ")
             .replace("\n", " \n")
             .replace("*", " ")
             .strip()
         )
+
+        # replace dialogue like '„XXX"' with '»HABEN SIE schon einmal Reich ohne Grenzen gespielt?«'
+        text = re.sub(r'„([^"]*)"', r'»\1«', text)
+
+        # replace + with "plus" if a number is after it (doesn't matter if spaces are between + or number or not).
+        text = re.sub(r"\+(?=\d)", " plus ", text)
+
+        # replace - with "minus" if a number is after it (doesn't matter if spaces are between - or number or not). But not if it is a word like "level-1-ratte"
+        text = re.sub(r"(?<!\w)-(?=\d)", " minus ", text)
+
+        # replace sth. like "172/177" (or "172 / 177") with "172 von 177"
+        text = re.sub(r"(\d+)\s*\/\s*(\d+)", r"\1 von \2", text)
+
+        # Add ', ' after each line that doesn't end with ".", "!", "?", ":", ";", "»", "«". ignore empty lines, lines starting with # and lines with only whitespaces in it.
+        text = re.sub(r"^(?!.*[.!?:;»«]\s*$)(?!#)(?!\s*$).*", lambda x: x.group(0) + ", ", text, flags=re.MULTILINE)
+
+        # everythint to lower case
+        text = text.lower()
+
+        rpg_shortcuts = {
+            "str": "stärke",
+            "int": "intelligenz",
+            "bew": "beweglichkeit",
+            "kon": "konstitution",
+            "wah": "wahrnehmung",
+            "cha": "charisma",
+            "ini": "initiative",
+            "ref": "reflexe",
+            "wil": "willenskraft",
+            "zäh": "zähigkeit",
+            "atk": "angriff"
+        }
+
+        def replace_shortcuts(text, shortcuts):
+            # Muster für Inhalte in Klammern
+            pattern = r"\((.*?)\)"  # Fängt alles in Klammern ein
+            def replacer(match):
+                # Zerlege den Inhalt in der Klammer
+                content = match.group(1)
+                # Ersetze alle Abkürzungen durch die passenden Wörter
+                for abbr, full_word in shortcuts.items():
+                    content = re.sub(rf"\b{re.escape(abbr)}\b", full_word, content)
+                return f"({content})"
+            
+            return re.sub(pattern, replacer, text)
+        
+        text = replace_shortcuts(text, rpg_shortcuts)
+
+        # replace sth like (17,1) or (17) with ", in klammern, 17,1" or "In Klammern, 17"
+        text = re.sub(r"\((\d+)(,\d+)?\)", r", in klammern, \1\2", text)
+
         return text
 
     def exclude_footnotes(self, text):
@@ -912,6 +967,7 @@ class EpubToAudiobook:
                 sentences = sent_tokenize(chapter)
                 #Drop any items that do NOT have at least one letter or number
                 sentences = [s for s in sentences if any(c.isalnum() for c in s)]
+
                 sentence_groups = list(self.combine_sentences(sentences, sentance_chunk_length))
 
 
